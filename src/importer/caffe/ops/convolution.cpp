@@ -37,8 +37,9 @@ DEFINE_CAFFE_LOWER(Convolution)
     auto dilation_h = get_or_default(std::bind(arr_func_t(&ConvolutionParameter::dilation), &param, _1), param.dilation_size(), 0, 1);
     auto dilation_w = get_or_default(std::bind(arr_func_t(&ConvolutionParameter::dilation), &param, _1), param.dilation_size(), 1, 1);
 
+    auto n = param.bias_term();
     auto weights = load_tensor<4>(op.blobs(0));
-    auto bias = load_tensor<1>(op.blobs(1));
+    auto bias = param.bias_term() ? load_tensor<1>(op.blobs(1)) : xt::xtensor<float, 1>(std::array<size_t, 1> { param.num_output() });
 
     auto node = graph_.emplace<conv2d>(input.shape(), weights, bias, groups, padding { pad_h, pad_h }, padding { pad_w, pad_w },
         stride_h, stride_w, dilation_h, dilation_w, value_range<float>::full());

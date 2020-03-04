@@ -25,6 +25,7 @@ set(SRCS tflite/tflite_importer.cpp
          paddle/ops/conv2d.cpp
          caffe/caffe_importer.cpp
          caffe/ops/placeholders.cpp
+         #caffe/ops/batchnorm.cpp
          caffe/ops/convolution.cpp
          caffe/ops/activations.cpp
          caffe/ops/split.cpp
