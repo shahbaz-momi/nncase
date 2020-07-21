@@ -31,7 +31,7 @@ auto quantize_bn_act(quantizer &quantizer, matmul &mm, float sa, const quant_par
     xt::xtensor<int32_t, 1> q_bias(mm.bias().shape());
     auto &bias = mm.bias();
     auto so = yq_p.scale / sa;
-    auto bn_mul = quantizer.get_fixed_mul(so, 32, 32, true);
+    auto bn_mul = quant::get_fixed_mul(so, 32, 32, true);
     assert(bn_mul.shift > 0);
 
     for (size_t i = 0; i < bias.size(); i++)
@@ -69,9 +69,9 @@ void quantized_matmul_transform::process(transform_context &context)
     auto inputs = context.outputs[0]->connections();
     auto &old_mm = static_cast<matmul &>(*context.matched_nodes[0]);
 
-    auto i1q_p = quantizer_.get_quant_param(quantizer_.get(output1), 8);
-    auto i2q_p = quantizer_.get_quant_param(quantizer_.get(output2), 8);
-    auto yq_p = quantizer_.get_quant_param(quantizer_.get(old_mm.output()), 8);
+    auto i1q_p = quant::get_quant_param(quantizer_.get(output1), 8);
+    auto i2q_p = quant::get_quant_param(quantizer_.get(output2), 8);
+    auto yq_p = quant::get_quant_param(quantizer_.get(old_mm.output()), 8);
     auto sa = i1q_p.scale * i2q_p.scale;
     auto [q_bias, act] = quantize_bn_act(quantizer_, old_mm, sa, yq_p);
 

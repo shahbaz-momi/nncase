@@ -17,7 +17,10 @@
 #include <hlir/connectors.h>
 #include <hlir/graph.h>
 #include <hlir/op_utils.h>
+#include <hlir/ops/dequantize.h>
+#include <hlir/ops/quantize.h>
 #include <hlir/ops/transpose.h>
+#include <quantize.h>
 #include <unordered_map>
 #include <xtensor/xadapt.hpp>
 #include <xtensor/xarray.hpp>
@@ -167,7 +170,7 @@ namespace importer
         }
 
         template <class T>
-        constexpr tflite::TensorType to_tensor_type()
+        static constexpr tflite::TensorType to_tensor_type()
         {
             if constexpr (std::is_same_v<T, float>)
                 return tflite::TensorType_FLOAT32;
@@ -177,6 +180,8 @@ namespace importer
                 return tflite::TensorType_INT32;
             else if constexpr (std::is_same_v<T, int8_t>)
                 return tflite::TensorType_INT8;
+            else if constexpr (std::is_same_v<T, uint8_t>)
+                return tflite::TensorType_UINT8;
             else
             {
                 assert(!"Invalid element type");
@@ -184,12 +189,14 @@ namespace importer
             }
         }
 
-        constexpr datatype_t to_data_type(tflite::TensorType type)
+        static constexpr datatype_t to_data_type(tflite::TensorType type)
         {
             switch (type)
             {
             case tflite::TensorType_FLOAT32:
                 return dt_float32;
+            case tflite::TensorType_UINT8:
+                return dt_uint8;
             default:
                 throw std::runtime_error("Invalid tesnor type");
             }
@@ -205,17 +212,39 @@ namespace importer
             return graph_.emplace<hlir::transpose>(type, input_shape, hlir::axis_t { 0, 2, 3, 1 });
         }
 
-        hlir::shape_t nhwc_to_nchw(const hlir::shape_t &input_shape)
+        hlir::dequantize *deq_if_quant_op(const hlir::shape_t &input_shape, const tflite::QuantizationParameters *params)
+        {
+            return params ? graph_.emplace<hlir::dequantize>(input_shape, quant::get_quant_param(to_value_range(*params), 8))
+                          : nullptr;
+        }
+
+        hlir::quantize *quant_if_quant_op(const hlir::shape_t &input_shape, const tflite::QuantizationParameters *params)
+        {
+            return params ? graph_.emplace<hlir::quantize>(input_shape, quant::get_quant_param(to_value_range(*params), 8))
+                          : nullptr;
+        }
+
+        static hlir::shape_t nhwc_to_nchw(const hlir::shape_t &input_shape)
         {
             return hlir::get_transposed_shape(input_shape, { 0, 3, 1, 2 });
         }
 
-        hlir::shape_t nchw_to_nhwc(const hlir::shape_t &input_shape)
+        static hlir::shape_t nchw_to_nhwc(const hlir::shape_t &input_shape)
         {
             return hlir::get_transposed_shape(input_shape, { 0, 2, 3, 1 });
         }
 
-        value_range<float> to_float_clamp_range(tflite::ActivationFunctionType func)
+        static hlir::shape_t krsc_to_kcrs(const hlir::shape_t &input_shape)
+        {
+            return hlir::get_transposed_shape(input_shape, { 0, 3, 1, 2 });
+        }
+
+        static hlir::shape_t dw_rsc_to_kcrs(const hlir::shape_t &input_shape)
+        {
+            return hlir::get_transposed_shape(input_shape, { 3, 0, 1, 2 });
+        }
+
+        static value_range<float> to_float_clamp_range(tflite::ActivationFunctionType func)
         {
             switch (func)
             {
@@ -230,6 +259,13 @@ namespace importer
             default:
                 throw std::runtime_error(std::string("Not supported activation: ") + tflite::EnumNameActivationFunctionType(func));
             }
+        }
+
+        static value_range<float> to_value_range(const tflite::QuantizationParameters &quant)
+        {
+            if (quant.min()->size() != 1)
+                throw std::runtime_error("Only by-tensor quantization is supported");
+            return { *quant.min()->begin(), *quant.max()->begin() };
         }
 
     private:

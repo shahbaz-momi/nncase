@@ -25,11 +25,14 @@ using namespace nncase::hlir;
 DEFINE_TFLITE_LOWER(SOFTMAX)
 {
     auto &input = get_tensor(op.inputs(), 0);
+    auto &output = get_tensor(op.outputs(), 0);
     auto &options = *op.builtin_options_as_SoftmaxOptions();
 
     auto in_shape = get_shape(input.shape());
     axis_t reduce_axis;
     reduce_axis.push_back(in_shape.size() - 1);
+
+    auto deq = deq_if_quant_op(in_shape, input.quantization());
 
     auto max = graph_.emplace<reduce>(reduce_max, in_shape, reduce_axis, std::numeric_limits<float>::lowest(), true);
     auto sub = graph_.emplace<binary>(binary_sub, in_shape, max->output().shape(), value_range<float>::full());
@@ -47,7 +50,18 @@ DEFINE_TFLITE_LOWER(SOFTMAX)
     div->input_a().connect(exp->output());
     div->input_b().connect(sum->output());
 
-    input_tensors_.emplace(&max->input(), op.inputs()->Get(0));
-    input_tensors_.emplace(&sub->input_a(), op.inputs()->Get(0));
-    output_tensors_.emplace(op.outputs()->Get(0), &div->output());
+    auto quant = quant_if_quant_op(div->output().shape(), output.quantization());
+
+    if (deq)
+    {
+        max->input().connect(deq->output());
+        sub->input_a().connect(deq->output());
+    }
+
+    if (quant)
+        quant->input().connect(div->output());
+
+    input_tensors_.emplace(deq ? &deq->input() : &max->input(), op.inputs()->Get(0));
+    input_tensors_.emplace(deq ? &deq->input() : &sub->input_a(), op.inputs()->Get(0));
+    output_tensors_.emplace(op.outputs()->Get(0), quant ? &quant->output() : &div->output());
 }

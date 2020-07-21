@@ -91,7 +91,7 @@ void quantizer::record(output_connector &connector, xtl::span<const float> data)
     switch (stage_)
     {
     case quantize_stage::collect_range:
-        record(connector, get_range(data.begin(), data.end()));
+        record(connector, quant::get_range(data.begin(), data.end()));
         break;
     case quantize_stage::collect_distribution:
         histograms_.at(&connector).record(data);
@@ -104,7 +104,7 @@ void quantizer::record(output_connector &connector, xtl::span<const float> data)
 void quantizer::begin_collect_distribution()
 {
     for (auto &&p : quant_ranges_)
-        histograms_.emplace(p.first, histogram(fixup_range(p.second), bins_, 256));
+        histograms_.emplace(p.first, histogram(quant::fixup_range(p.second), bins_, 256));
 
     stage_ = quantize_stage::collect_distribution;
 }
@@ -120,54 +120,9 @@ void quantizer::end_collect_distribution(std::function<void(size_t)> progress)
     }
 }
 
-quant_param_t quantizer::get_quant_param(value_range<float> range, int32_t bits)
-{
-    range = fixup_range(range);
-    auto r = range.max - range.min;
-    auto scale = ((1LL << bits) - 1) / r;
-    auto bias = std::round(-range.min * scale);
-    assert(bias >= 0);
-    return { static_cast<int32_t>(bias), scale };
-}
-
 value_range<float> quantizer::get(hlir::output_connector &connector) const
 {
     return quant_ranges_.at(&connector);
-}
-
-fixed_mul quantizer::get_fixed_mul(float value, int32_t max_bits, uint8_t max_shift, bool is_signed)
-{
-    assert(!is_signed || value >= 0);
-
-    auto bits = is_signed ? max_bits - 1 : max_bits;
-    int32_t shift = 0;
-    float mul = 0;
-
-    if (std::abs(value) > 1)
-    {
-        int mul_shift;
-        mul = std::frexp(value, &mul_shift);
-        shift = std::min((int32_t)max_shift, bits - mul_shift);
-        mul = mul * std::pow(2.f, shift + mul_shift);
-    }
-    else if (value == 0)
-    {
-        mul = 0;
-        shift = 0;
-    }
-    else
-    {
-        int mul_shift;
-        mul = std::frexp(value, &mul_shift);
-        shift = std::min(max_shift + mul_shift, bits);
-        mul = mul * std::pow(2.f, shift);
-        shift -= mul_shift;
-    }
-
-    assert(std::abs(mul) < std::pow(2, bits));
-    assert(shift >= 0 && shift <= max_shift);
-    assert(std::abs(value - mul * std::pow(2, -shift)) <= std::numeric_limits<float>::epsilon());
-    return { mul, static_cast<int8_t>(shift) };
 }
 
 void quantizer::broadcast_output(hlir::graph &graph, const std::unordered_set<node_opcode> &ops)

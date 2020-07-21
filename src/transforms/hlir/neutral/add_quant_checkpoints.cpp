@@ -39,7 +39,7 @@ bool add_quant_checkpoints_transform::on_try_match(node &node, transform_context
         else if (auto conv = node_cast<conv2d>(node))
         {
             auto weights = conv->weights();
-            auto total_range = quantizer::fixup_range(quantizer::get_range(weights.begin(), weights.end()));
+            auto total_range = quant::fixup_range(quant::get_range(weights.begin(), weights.end()));
             if (total_range.max - total_range.min > context.target.options().weights_quantize_threshold)
                 return false;
         }
@@ -50,7 +50,7 @@ bool add_quant_checkpoints_transform::on_try_match(node &node, transform_context
                 auto w_beg = reinterpret_cast<const float *>(w->data().data());
                 auto w_end = w_beg + w->data().size() / sizeof(float);
 
-                auto total_range = quantizer::fixup_range(quantizer::get_range(w_beg, w_end));
+                auto total_range = quant::fixup_range(quant::get_range(w_beg, w_end));
                 if (total_range.max - total_range.min > context.target.options().weights_quantize_threshold)
                     return false;
             }

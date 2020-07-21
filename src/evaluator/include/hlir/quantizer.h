@@ -15,6 +15,7 @@
 #pragma once
 #include <cassert>
 #include <hlir/graph.h>
+#include <quantize.h>
 #include <scheduler/scheduler.h>
 #include <unordered_map>
 #include <unordered_set>
@@ -32,8 +33,8 @@ namespace hlir
 
     enum class calibrate_method
     {
-		no_clip,
-		l2
+        no_clip,
+        l2
     };
 
     class quantizer
@@ -57,49 +58,6 @@ namespace hlir
 
     public:
         quantizer(calibrate_method cali_method, size_t bins);
-
-        template <class TIt>
-        static value_range<float> get_range(TIt begin, TIt end)
-        {
-            float min = std::numeric_limits<float>::max();
-            float max = std::numeric_limits<float>::min();
-            while (begin != end)
-            {
-                auto value = *begin++;
-                auto fc = std::fpclassify(value);
-                if (fc == FP_NORMAL || fc == FP_SUBNORMAL || fc == FP_ZERO)
-                {
-                    min = std::min(min, value);
-                    max = std::max(max, value);
-                }
-            }
-
-            return { min, max };
-        }
-
-        static value_range<float> fixup_range(value_range<float> range)
-        {
-            if (range.min < -1e3)
-                range.min = -1e3;
-            if (range.max > 1e3)
-                range.max = 1e3;
-            auto r = range.max - range.min;
-            if (r == 0)
-                r = 0.1f;
-            else if (r < 0.01f)
-                r = 0.01f;
-            range.max = range.min + r;
-
-            if (range.max < 0)
-                range.max = 0;
-            if (range.min > 0)
-                range.min = 0;
-            return range;
-        }
-
-        static quant_param_t get_quant_param(value_range<float> range, int32_t bits);
-        static fixed_mul get_fixed_mul(float value, int32_t max_bits, uint8_t max_shift, bool is_signed);
-
         void record(hlir::output_connector &connector, value_range<float> range);
         void set(hlir::output_connector &connector, value_range<float> range);
         void record(hlir::output_connector &connector, xtl::span<const float> data);

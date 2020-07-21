@@ -48,7 +48,7 @@ bool fake_kpu_conv2d_transform::on_try_match(node &node, transform_context &cont
 
         {
             auto weights = conv.weights();
-            auto total_range = quantizer::fixup_range(quantizer::get_range(weights.begin(), weights.end()));
+            auto total_range = quant::fixup_range(quant::get_range(weights.begin(), weights.end()));
             if (total_range.max - total_range.min > context.target.options().weights_quantize_threshold)
                 return false;
         }

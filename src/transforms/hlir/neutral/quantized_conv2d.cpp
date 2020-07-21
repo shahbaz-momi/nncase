@@ -30,8 +30,8 @@ auto quantize_weights(quantizer &quantizer, conv2d &conv)
 {
     auto weights = conv.weights();
     xt::xtensor<uint8_t, 4> q_weights(conv.weights().shape());
-    auto total_range = quantizer.fixup_range(quantizer.get_range(weights.begin(), weights.end()));
-    auto q_p = quantizer.get_quant_param(total_range, 8);
+    auto total_range = quant::fixup_range(quant::get_range(weights.begin(), weights.end()));
+    auto q_p = quant::get_quant_param(total_range, 8);
 
     auto out_it = q_weights.begin();
     for (auto w : weights)
@@ -44,7 +44,7 @@ auto quantize_bn_act(quantizer &quantizer, conv2d &conv, float sa, const quant_p
     auto q_bias = xt::xtensor<int32_t, 1>::from_shape({ (size_t)conv.output_channels() });
     auto &bias = conv.bias();
     auto so = yq_p.scale / sa;
-    auto bn_mul = quantizer.get_fixed_mul(so, 32, 255, true);
+    auto bn_mul = quant::get_fixed_mul(so, 32, 255, true);
     assert(bn_mul.shift > 0);
 
     for (size_t i = 0; i < bias.size(); i++)
@@ -79,9 +79,9 @@ void quantized_conv2d_transform::process(transform_context &context)
     auto inputs = context.outputs[0]->connections();
     auto &old_conv = static_cast<conv2d &>(*context.matched_nodes[0]);
 
-    auto iq_p = quantizer_.get_quant_param(quantizer_.get(output), 8);
+    auto iq_p = quant::get_quant_param(quantizer_.get(output), 8);
     auto [wq_p, q_weights] = quantize_weights(quantizer_, old_conv);
-    auto yq_p = quantizer_.get_quant_param(quantizer_.get(old_conv.output()), 8);
+    auto yq_p = quant::get_quant_param(quantizer_.get(old_conv.output()), 8);
     auto sa = iq_p.scale * wq_p.scale;
     auto [q_bias, act] = quantize_bn_act(quantizer_, old_conv, sa, yq_p);
 

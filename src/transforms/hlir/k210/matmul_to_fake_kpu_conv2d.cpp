@@ -42,7 +42,7 @@ bool matmul_to_fake_kpu_conv2d_transform::on_try_match(node &node, transform_con
                 auto w_beg = reinterpret_cast<const float *>(w->data().data());
                 auto w_end = w_beg + w->data().size() / sizeof(float);
 
-                auto total_range = quantizer::fixup_range(quantizer::get_range(w_beg, w_end));
+                auto total_range = quant::fixup_range(quant::get_range(w_beg, w_end));
                 if (total_range.max - total_range.min > context.target.options().weights_quantize_threshold)
                     return false;
             }

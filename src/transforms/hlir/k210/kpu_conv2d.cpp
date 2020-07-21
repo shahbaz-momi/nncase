@@ -40,11 +40,11 @@ auto quantize_weights(quantizer &quantizer, fake_kpu_conv2d &conv)
     auto weights = conv.weights();
     xt::xtensor<uint8_t, 4> q_weights(conv.weights().shape());
     std::vector<float> scales(conv.output_channels());
-    auto total_range = quantizer.fixup_range(quantizer.get_range(weights.begin(), weights.end()));
+    auto total_range = quant::fixup_range(quant::get_range(weights.begin(), weights.end()));
     for (size_t oc = 0; oc < conv.output_channels(); oc++)
     {
         auto w_ch = xt::view(weights, oc, xt::all());
-        auto range = quantizer.fixup_range(quantizer.get_range(w_ch.begin(), w_ch.end()));
+        auto range = quant::fixup_range(quant::get_range(w_ch.begin(), w_ch.end()));
 
         auto s1 = total_range.max / range.max;
         auto s2 = total_range.min / range.min;
@@ -56,8 +56,8 @@ auto quantize_weights(quantizer &quantizer, fake_kpu_conv2d &conv)
         scales[oc] = s;
     }
 
-    total_range = quantizer.get_range(weights.begin(), weights.end());
-    auto q_p = quantizer.get_quant_param(total_range, 8);
+    total_range = quant::get_range(weights.begin(), weights.end());
+    auto q_p = quant::get_quant_param(total_range, 8);
 
     auto out_it = q_weights.begin();
     for (auto w : weights)
@@ -110,7 +110,7 @@ auto quantize_act(quantizer &quantizer, float act_in_scale, const quant_param_t 
         auto &dest = act[i];
 
         auto x0 = src.start * act_in_scale;
-        auto mul = quantizer.get_fixed_mul(src.slop / zq_scale, 16, 20, true);
+        auto mul = quant::get_fixed_mul(src.slop / zq_scale, 16, 20, true);
         dest.start_x = (int64_t)std::round(x0);
         dest.mul = mul.rounded_mul();
         dest.shift = mul.shift;
@@ -125,7 +125,7 @@ auto quantize_bn(quantizer &quantizer, fake_kpu_conv2d &conv, float sa, const st
     std::vector<kpu_batchnorm_segment> bn(conv.output_channels());
     auto &bias = conv.bias();
     auto so = yq_p.scale / sa;
-    auto bn_mul = quantizer.get_fixed_mul(so, 22, 255, true);
+    auto bn_mul = quant::get_fixed_mul(so, 22, 255, true);
     auto bn_shift = std::min(bn_mul.shift, (int8_t)15);
     auto up_scale = bn_mul.shift - bn_shift;
     assert(up_scale >= 0);
@@ -136,7 +136,7 @@ auto quantize_bn(quantizer &quantizer, fake_kpu_conv2d &conv, float sa, const st
     {
         auto b = bias[i];
         auto ch_so = so * post_mul / w_scales[i];
-        auto ch_bn_mul = quantizer.get_fixed_mul(ch_so, 22, 15, true);
+        auto ch_bn_mul = quant::get_fixed_mul(ch_so, 22, 15, true);
         bn[i] = {
             ch_bn_mul.rounded_mul(),
             ch_bn_mul.shift,
@@ -184,10 +184,10 @@ void kpu_conv2d_transform::process(transform_context &context)
     auto &old_conv = static_cast<fake_kpu_conv2d &>(*context.matched_nodes[0]);
     auto old_fu = context.matched_nodes.size() > 1 ? static_cast<fused_unary *>(context.matched_nodes[1]) : nullptr;
 
-    auto iq_p = quantizer_.get_quant_param(quantizer_.get(output), 8);
+    auto iq_p = quant::get_quant_param(quantizer_.get(output), 8);
     auto [wq_p, w_scales, q_weights] = quantize_weights(quantizer_, old_conv);
-    auto yq_p = quantizer_.get_quant_param(quantizer_.get(old_conv.output()), 8);
-    auto zq_p = quantizer_.get_quant_param(quantizer_.get(*context.outputs[0]), 8);
+    auto yq_p = quant::get_quant_param(quantizer_.get(old_conv.output()), 8);
+    auto zq_p = quant::get_quant_param(quantizer_.get(*context.outputs[0]), 8);
     auto sa = iq_p.scale * wq_p.scale;
     auto [bn, s_act_in] = quantize_bn(quantizer_, old_conv, sa, w_scales, yq_p);
     auto act = quantize_act(quantizer_, s_act_in, yq_p, zq_p, old_conv.fused_activation(), old_fu);

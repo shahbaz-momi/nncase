@@ -32,8 +32,10 @@ DEFINE_TFLITE_LOWER(MAX_POOL_2D)
 void tflite_importer::convert_pool_2d(const tflite::Operator &op, reduce_op_t reduce_op, float init_value)
 {
     auto &input = get_tensor(op.inputs(), 0);
+    auto &output = get_tensor(op.outputs(), 0);
     auto &options = *op.builtin_options_as_Pool2DOptions();
 
+    auto deq = deq_if_quant_op(get_shape(input.shape()), input.quantization());
     auto pre_trans = nhwc_to_nchw(dt_float32, get_shape(input.shape()));
 
     auto in_h = pre_trans->output().shape()[2];
@@ -52,7 +54,13 @@ void tflite_importer::convert_pool_2d(const tflite::Operator &op, reduce_op_t re
 
     auto sur_trans = nchw_to_nhwc(dt_float32, conv->output().shape());
     sur_trans->input().connect(conv->output());
+    auto quant = quant_if_quant_op(sur_trans->output().shape(), output.quantization());
 
-    input_tensors_.emplace(&pre_trans->input(), op.inputs()->Get(0));
-    output_tensors_.emplace(op.outputs()->Get(0), &sur_trans->output());
+    if (deq)
+        pre_trans->input().connect(deq->output());
+    if (quant)
+        quant->input().connect(sur_trans->output());
+
+    input_tensors_.emplace(deq ? &deq->input() : &pre_trans->input(), op.inputs()->Get(0));
+    output_tensors_.emplace(op.outputs()->Get(0), quant ? &quant->output() : &sur_trans->output());
 }

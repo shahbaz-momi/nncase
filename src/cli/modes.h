@@ -35,6 +35,7 @@ struct compile_options
     std::string inference_type = "uint8";
     std::string input_type = "default";
     std::string calibrate_method = "no_clip";
+    std::string quant_type = "ptq";
     float input_mean = 0.f;
     float input_std = 1.f;
     float weights_quantize_threshold = 64.f;
