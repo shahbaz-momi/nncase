@@ -19,6 +19,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <runtime/paging.h>
 
 using namespace nncase;
 using namespace nncase::codegen;
@@ -70,6 +71,76 @@ memory_range codegen_context::get_allocation(output_connector &conn) const
     return { alloc.type, conn.type(), (uint32_t)alloc.start, (uint32_t)alloc.size };
 }
 
+std::ostream& operator<<(std::ostream& ostream, const memory_page &page) {
+    return ostream << "page{index=" << page.index << ",type=" << page.type << ",begin=" << page.begin << ",.end=" << page.end
+        << ",size_bytes=" << page.size_bytes;
+}
+
+void write_pages(runtime::binary_writer writer, const std::vector<node_header> &headers, const std::vector<llir::node *> &nodes) {
+    std::vector<memory_page> pages;
+
+    // We can always hold the first page in memory
+    memory_page current = {
+            .index = 0,
+            .type = persistent,
+            .begin = 0, // default to including first node
+            .end = 0,
+            .offset_bytes = 0,
+            .size_bytes = headers[0].body_size
+    };
+
+    // Try and include nodes sequentially to hit our target size; try not to go over our target
+    for(uint32_t node = 1; node < headers.size(); node ++) {
+        if(headers[node].body_size + current.size_bytes > TARGET_PAGE_SIZE) {
+            // Commit current page
+            pages.emplace_back(current);
+            current = {
+                    .index = current.index + 1,
+                    .type = swap,
+                    .begin = node,
+                    .end = node,
+                    .offset_bytes = current.offset_bytes + current.size_bytes,
+                    .size_bytes = headers[node].body_size
+            };
+        } else {
+            // Shift end to current
+            current.end = node;
+            current.size_bytes += headers[node].body_size;
+        }
+    }
+
+    // commit last remaining page
+    pages.emplace_back(current);
+
+    assert(pages.size() <= KM_MAX_PAGES && "Max number of pages exceeded");
+
+    uint64_t working_size = 0;
+    uint64_t largest_swap = 0;
+    for(auto &page : pages) {
+        if(page.type == persistent) {
+            working_size += page.size_bytes;
+        } else { // swap
+            largest_swap = std::max(largest_swap, page.size_bytes);
+        }
+    }
+    working_size += largest_swap;
+
+    memory_page_table table = {
+            .num_pages = (uint32_t) pages.size(),
+            .max_pages = KM_MAX_PAGES,
+            .body_buffer_size = working_size
+    };
+
+    // Write the table first, then pages
+    writer.write(table);
+    std::cout << "Using pages:" << std::endl;
+    for(auto &page : pages) {
+        writer.write(page);
+        std::cout << "    " << page << std::endl;
+    }
+    std::cout << "Resident model size: " << std::to_string(table.body_buffer_size) << std::endl;
+}
+
 void nncase::codegen::gencode(codegen_context &context, xtl::span<llir::node *> compute_sequence)
 {
     std::vector<llir::node *> runtime_nodes;
@@ -98,6 +169,8 @@ void nncase::codegen::gencode(codegen_context &context, xtl::span<llir::node *> 
         }
     }
 
+    bool enable_paging = true;
+
     auto &writer = context.writer();
     // model header
     model_header model_header;
@@ -110,6 +183,10 @@ void nncase::codegen::gencode(codegen_context &context, xtl::span<llir::node *> 
     model_header.nodes = runtime_nodes.size();
     model_header.inputs = inputs.size();
     model_header.outputs = outputs.size();
+
+    if(enable_paging) {
+        model_header.flags |= KM_NODE_PAGING;
+    }
 
     writer.write(model_header);
 
@@ -137,7 +214,9 @@ void nncase::codegen::gencode(codegen_context &context, xtl::span<llir::node *> 
     auto node_headers_pos = writer.position();
     std::streamoff node_header_bytes = sizeof(node_header) * runtime_nodes.size();
 
-    writer.position(node_headers_pos + node_header_bytes);
+    std::streamoff page_bytes = sizeof(memory_page) * KM_MAX_PAGES * ((model_header.flags & KM_MAX_PAGES)? 1 : 0);
+
+    writer.position(node_headers_pos + node_header_bytes + page_bytes);
 
     // write body
     for (auto &&node : runtime_nodes)
@@ -157,6 +236,12 @@ void nncase::codegen::gencode(codegen_context &context, xtl::span<llir::node *> 
     auto end_pos = writer.position();
     writer.position(node_headers_pos);
     writer.write_array<node_header>(node_headers);
+
+    // Write our pages structure
+    if(model_header.flags & KM_NODE_PAGING) {
+        write_pages(writer, node_headers, runtime_nodes);
+    }
+
     writer.position(end_pos);
 
     std::cout << "Working memory usage: " << context.memory_usage() << " B" << std::endl;
