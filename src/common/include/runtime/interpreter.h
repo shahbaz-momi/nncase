@@ -14,6 +14,7 @@
  */
 #pragma once
 #include "model.h"
+#include "paging.h"
 #include <chrono>
 #include <memory>
 #include <optional>
@@ -34,7 +35,7 @@ namespace runtime
     public:
         using clock_t = std::chrono::system_clock;
 
-        bool try_load_model(const uint8_t *buffer);
+        bool try_load_model(const uint8_t *buffer, uint64_t flash_addr = 0x00);
         uint32_t model_size(const uint8_t *buffer);
 
         size_t inputs_size() const noexcept { return model_header_->inputs; }
@@ -60,6 +61,7 @@ namespace runtime
         virtual bool initialize();
         virtual xtl::span<uint8_t> memory_at(const memory_range &range) const noexcept;
         virtual clock_t::time_point get_now() const noexcept;
+        virtual bool initialize_pages(uint64_t flash_addr);
 
     private:
         void step();
@@ -72,8 +74,10 @@ namespace runtime
         xtl::span<const runtime_shape_t> input_shapes_;
         xtl::span<const node_header> node_headers_;
         xtl::span<const uint8_t> constants_;
-        const uint8_t *node_body_start_;
+        xtl::span<const memory_page> pages_;
+        const memory_page_table *page_table_;
         error_callback_t on_error_;
+        const uint8_t *node_body_start_;
         run_callback_t run_callback_;
         node_profile_callback_t node_profile_;
         void *userdata_;

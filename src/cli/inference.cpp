@@ -75,7 +75,7 @@ struct eval_context
     void eval(const inference_options &options)
     {
         auto model = read_file(options.model_filename);
-        if (!interp.try_load_model(model.data()))
+        if (!interp.try_load_model(model.data(), 0x00))
             throw std::runtime_error("Invalid model");
 
         if (!boost::filesystem::exists(options.output_path))

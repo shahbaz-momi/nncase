@@ -4,7 +4,7 @@
 /**
  * kmodel flag which enables paging for this model.
  */
-#define KM_NODE_PAGING 0x02
+#define KM_ENABLE_PAGING 0x02
 
 /**
  * Maximum number of possible pages.
@@ -16,7 +16,7 @@
  */
 #define TARGET_PAGE_SIZE 2300000
 
-enum memory_page_type {
+enum memory_page_type : uint32_t {
     persistent = 0,
     swap = 1,
 };

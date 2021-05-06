@@ -72,8 +72,8 @@ memory_range codegen_context::get_allocation(output_connector &conn) const
 }
 
 std::ostream& operator<<(std::ostream& ostream, const memory_page &page) {
-    return ostream << "page{index=" << page.index << ",type=" << page.type << ",begin=" << page.begin << ",.end=" << page.end
-        << ",size_bytes=" << page.size_bytes;
+    return ostream << "page{index=" << page.index << ",type=" << page.type << ",begin=" << page.begin << ",end=" << page.end
+        << ",size_bytes=" << page.size_bytes << "}";
 }
 
 void write_pages(runtime::binary_writer writer, const std::vector<node_header> &headers, const std::vector<llir::node *> &nodes) {
@@ -138,7 +138,7 @@ void write_pages(runtime::binary_writer writer, const std::vector<node_header> &
         writer.write(page);
         std::cout << "    " << page << std::endl;
     }
-    std::cout << "Resident model size: " << std::to_string(table.body_buffer_size) << std::endl;
+    std::cout << "Resident model size: " << std::to_string(table.body_buffer_size) << " B" << std::endl;
 }
 
 void nncase::codegen::gencode(codegen_context &context, xtl::span<llir::node *> compute_sequence)
@@ -185,7 +185,7 @@ void nncase::codegen::gencode(codegen_context &context, xtl::span<llir::node *> 
     model_header.outputs = outputs.size();
 
     if(enable_paging) {
-        model_header.flags |= KM_NODE_PAGING;
+        model_header.flags |= KM_ENABLE_PAGING;
     }
 
     writer.write(model_header);
@@ -214,7 +214,11 @@ void nncase::codegen::gencode(codegen_context &context, xtl::span<llir::node *> 
     auto node_headers_pos = writer.position();
     std::streamoff node_header_bytes = sizeof(node_header) * runtime_nodes.size();
 
-    std::streamoff page_bytes = sizeof(memory_page) * KM_MAX_PAGES * ((model_header.flags & KM_MAX_PAGES)? 1 : 0);
+    std::streamoff page_bytes = 0;
+    if(model_header.flags & KM_ENABLE_PAGING) {
+        page_bytes = sizeof(memory_page_table) +
+                sizeof(memory_page) * KM_MAX_PAGES;
+    }
 
     writer.position(node_headers_pos + node_header_bytes + page_bytes);
 
@@ -238,7 +242,7 @@ void nncase::codegen::gencode(codegen_context &context, xtl::span<llir::node *> 
     writer.write_array<node_header>(node_headers);
 
     // Write our pages structure
-    if(model_header.flags & KM_NODE_PAGING) {
+    if(model_header.flags & KM_ENABLE_PAGING) {
         write_pages(writer, node_headers, runtime_nodes);
     }
 
