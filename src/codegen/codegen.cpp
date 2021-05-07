@@ -79,10 +79,9 @@ std::ostream& operator<<(std::ostream& ostream, const memory_page &page) {
 void write_pages(runtime::binary_writer writer, const std::vector<node_header> &headers, const std::vector<llir::node *> &nodes) {
     std::vector<memory_page> pages;
 
-    // We can always hold the first page in memory
     memory_page current = {
             .index = 0,
-            .type = persistent,
+            .type = swap,
             .begin = 0, // default to including first node
             .end = 0,
             .offset_bytes = 0,
